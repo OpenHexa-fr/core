@@ -14,10 +14,14 @@ class BaseDownloader(ABC):
         return 8192
     
     async def download(self, dest: Path) -> Path:
-        async with httpx.AsyncClient(follow_redirects=True) as client:      # cran 1
-            async with client.stream("GET", self.url) as reponse:           # cran 2
-                reponse.raise_for_status()
-                with open(dest, "wb") as f:                                 # cran 3
-                    async for chunk in reponse.aiter_bytes(self.chunk_size):# cran 4
+        # Client HTTP async (follow_redirects : suit les redirections).
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            # Requête GET en streaming : le corps n'est pas chargé en RAM.
+            async with client.stream("GET", self.url) as reponse:
+                reponse.raise_for_status()  # erreur si réponse 4xx/5xx
+                # Fichier destination en écriture binaire ("wb" = octets).
+                with open(dest, "wb") as f:
+                    # Écrit le flux paquet par paquet : la RAM reste plate.
+                    async for chunk in reponse.aiter_bytes(self.chunk_size):
                         f.write(chunk)
-        return dest
+        return dest  # chemin du fichier téléchargé
