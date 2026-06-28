@@ -1,0 +1,9 @@
+# Secrets — JAMAIS sur git
+.env
+# Environnement virtuel
+.venv/
+# Cache et bytecode Python
+__pycache__/
+*.pyc
+# Métadonnées de packaging
+*.egg-info/

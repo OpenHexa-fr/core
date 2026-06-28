@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61"]      # l'outil qui va fabriquer le package
+build-backend = "setuptools.build_meta"   # la fonction de setuptools qui fait le travail
+[project]
+name = "openhexa-core"
+version = "0.1.0"
+description = "lib core d'openhexa"
+requires-python = ">=3.12"
+dependencies = ["pydantic-settings"]
+[tool.setuptools.packages.find]
+include = ["openhexa*"]
