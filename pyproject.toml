@@ -6,6 +6,6 @@ name = "openhexa-core"
 version = "0.1.0"
 description = "lib core d'openhexa"
 requires-python = ">=3.12"
-dependencies = ["pydantic-settings"]
+dependencies = ["pydantic-settings", "httpx"]
 [tool.setuptools.packages.find]
 include = ["openhexa*"]
