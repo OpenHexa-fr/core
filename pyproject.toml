@@ -9,7 +9,9 @@ description = "Shared Elasticsearch layer for OpenHexa backends"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "elasticsearch[async]>=8.0",
+    # <9.0 : le client v9 envoie un header Accept incompatible avec un serveur 8.x
+    # (media_type_header_exception). Rester sur la ligne 8.x tant que le cluster l'est.
+    "elasticsearch[async]>=8.0,<9.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "structlog>=23.0",

@@ -72,11 +72,13 @@ async def search_after_all(
 ) -> AsyncIterator[dict[str, Any]]:
     """Itère sur tous les documents correspondant à `query`, page par page.
 
-    `sort_field` est complété par un tri secondaire sur `_id` pour garantir un
-    ordre total stable, requis pour que `search_after` avance sans sauter ni
-    répéter de documents.
+    `sort_field` est complété par un tri secondaire sur `_seq_no` pour garantir
+    un ordre total stable, requis pour que `search_after` avance sans sauter ni
+    répéter de documents. `_id` ne peut pas servir de tie-breaker (sa fielddata
+    est désactivée par défaut) et `_shard_doc` nécessite un point-in-time, que
+    cette API stateless ne gère pas.
     """
-    sort = [{sort_field: "asc"}, {"_id": "asc"}]
+    sort = [{sort_field: "asc"}, {"_seq_no": "asc"}]
     search_after: list[Any] | None = None
 
     while True:

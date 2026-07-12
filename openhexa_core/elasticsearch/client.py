@@ -13,8 +13,11 @@ logger = structlog.get_logger(__name__)
 
 _client: AsyncElasticsearch | None = None
 
-_MAX_RETRIES = 5
-_BASE_DELAY_SECONDS = 0.5
+# Budget total ~100s : un cluster ES conteneurisé peut rester injoignable un
+# moment après que son propre healthcheck Docker le déclare "healthy".
+_MAX_RETRIES = 15
+_BASE_DELAY_SECONDS = 1.0
+_MAX_DELAY_SECONDS = 10.0
 
 
 async def get_client(settings: ESSettings | None = None) -> AsyncElasticsearch:
@@ -44,7 +47,7 @@ async def get_client(settings: ESSettings | None = None) -> AsyncElasticsearch:
                 f"Elasticsearch unreachable at {resolved_settings.es_url} "
                 f"after {_MAX_RETRIES} attempts"
             )
-        delay = _BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+        delay = min(_BASE_DELAY_SECONDS * (2 ** (attempt - 1)), _MAX_DELAY_SECONDS)
         logger.warning("elasticsearch_unreachable_retry", attempt=attempt, delay=delay)
         await asyncio.sleep(delay)
         attempt += 1
