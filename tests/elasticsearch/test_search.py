@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from openhexa_core.elasticsearch.search import build_filters, paginate, search_after_all
+from openhexa_core.elasticsearch.search import build_filters, count, paginate, search_after_all
 
 
 def test_build_filters_ignores_none() -> None:
@@ -43,6 +43,14 @@ async def test_paginate_returns_next_search_after() -> None:
 
     assert page["total"] == 1
     assert page["next_search_after"] == ["2024-01-01", "1"]
+
+
+async def test_count_returns_document_count() -> None:
+    client = AsyncMock()
+    client.count.return_value = {"count": 42}
+
+    assert await count(client, "openhexa-dvf") == 42
+    client.count.assert_called_once_with(index="openhexa-dvf")
 
 
 async def test_search_after_all_iterates_until_empty_page() -> None:

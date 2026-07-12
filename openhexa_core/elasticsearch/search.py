@@ -11,6 +11,16 @@ _DEFAULT_PAGE_SIZE = 200
 _MAX_RESULT_WINDOW = 1000
 
 
+async def count(client: AsyncElasticsearch, index: str) -> int:
+    """Retourne le nombre de documents visibles dans `index` (alias ou nom d'index).
+
+    Utile pour exposer un statut de disponibilité des données (ex. bandeau
+    "synchronisation en cours" côté frontend) sans avoir à exécuter une recherche.
+    """
+    response = await client.count(index=index)
+    return int(response["count"])
+
+
 def build_filters(**kwargs: Any) -> list[dict[str, Any]]:
     """Construit des clauses `filter` Elasticsearch à partir de kwargs.
 
