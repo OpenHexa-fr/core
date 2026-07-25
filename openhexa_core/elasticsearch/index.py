@@ -18,9 +18,15 @@ async def create_index(
 ) -> bool:
     """Crée l'index `name` avec le mapping explicite fourni s'il n'existe pas déjà.
 
+    S'il existe déjà, les nouveaux champs du mapping y sont fusionnés (PUT
+    mapping additif) : Elasticsearch ne recrée jamais les champs déjà présents,
+    donc cette opération est sans risque et permet de faire évoluer le
+    mapping explicite d'un domaine sans réindexation complète.
+
     Retourne True si l'index a été créé, False s'il existait déjà.
     """
     if await client.indices.exists(index=name):
+        await client.indices.put_mapping(index=name, **mappings)
         return False
 
     await client.indices.create(index=name, mappings=mappings, settings=settings or {})
