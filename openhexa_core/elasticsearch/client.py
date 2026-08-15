@@ -20,15 +20,18 @@ _BASE_DELAY_SECONDS = 1.0
 _MAX_DELAY_SECONDS = 10.0
 
 
-def _auth_kwargs(settings: ESSettings) -> dict[str, str | tuple[str, str]]:
-    """Résout les kwargs d'auth à passer à AsyncElasticsearch.
+def _build_client(settings: ESSettings) -> AsyncElasticsearch:
+    """Construit le client ES, en préférant l'API key (accès scopé) au user/password.
 
-    Préfère l'API key (accès scopé) si fournie, sinon retombe sur user/password.
+    Des branches explicites plutôt qu'un `**dict` générique : les kwargs de
+    AsyncElasticsearch sont trop précisément typés pour un `**dict[str, ...]`
+    sous mypy strict.
     """
     if settings.es_api_key:
-        return {"api_key": settings.es_api_key}
+        return AsyncElasticsearch(settings.es_url, api_key=settings.es_api_key)
     if settings.es_user and settings.es_password:
-        return {"basic_auth": (settings.es_user, settings.es_password)}
+        basic_auth = (settings.es_user, settings.es_password)
+        return AsyncElasticsearch(settings.es_url, basic_auth=basic_auth)
     raise ValueError("ESSettings doit fournir soit es_api_key, soit es_user et es_password")
 
 
@@ -43,7 +46,7 @@ async def get_client(settings: ESSettings | None = None) -> AsyncElasticsearch:
         return _client
 
     resolved_settings = settings or ESSettings()
-    client = AsyncElasticsearch(resolved_settings.es_url, **_auth_kwargs(resolved_settings))
+    client = _build_client(resolved_settings)
 
     attempt = 1
     while True:
