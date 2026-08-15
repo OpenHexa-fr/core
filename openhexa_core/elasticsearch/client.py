@@ -20,6 +20,18 @@ _BASE_DELAY_SECONDS = 1.0
 _MAX_DELAY_SECONDS = 10.0
 
 
+def _auth_kwargs(settings: ESSettings) -> dict[str, str | tuple[str, str]]:
+    """Résout les kwargs d'auth à passer à AsyncElasticsearch.
+
+    Préfère l'API key (accès scopé) si fournie, sinon retombe sur user/password.
+    """
+    if settings.es_api_key:
+        return {"api_key": settings.es_api_key}
+    if settings.es_user and settings.es_password:
+        return {"basic_auth": (settings.es_user, settings.es_password)}
+    raise ValueError("ESSettings doit fournir soit es_api_key, soit es_user et es_password")
+
+
 async def get_client(settings: ESSettings | None = None) -> AsyncElasticsearch:
     """Retourne le client Elasticsearch singleton, en le créant si nécessaire.
 
@@ -31,10 +43,7 @@ async def get_client(settings: ESSettings | None = None) -> AsyncElasticsearch:
         return _client
 
     resolved_settings = settings or ESSettings()
-    client = AsyncElasticsearch(
-        resolved_settings.es_url,
-        basic_auth=(resolved_settings.es_user, resolved_settings.es_password),
-    )
+    client = AsyncElasticsearch(resolved_settings.es_url, **_auth_kwargs(resolved_settings))
 
     attempt = 1
     while True:
