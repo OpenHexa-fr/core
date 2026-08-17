@@ -48,12 +48,19 @@ async def paginate(
     sort: list[dict[str, Any]],
     search_after: list[Any] | None = None,
     size: int = _DEFAULT_PAGE_SIZE,
+    source: list[str] | None = None,
 ) -> dict[str, Any]:
     """Retourne une page de résultats en pagination `search_after`.
 
     Ne jamais utiliser `from/size` au-delà de 1 000 résultats : `sort` doit
     comporter un tie-breaker stable (typiquement `_id`) pour que `search_after`
     soit déterministe.
+
+    `source` restreint les champs rapatriés depuis Elasticsearch (`_source`
+    filtering) : utile pour les requêtes à gros `size` dont l'appelant n'exploite
+    qu'une poignée de champs (ex. alimenter une carte), où le coût dominant est
+    la lecture et la sérialisation du `_source` complet. `None` (défaut) rapatrie
+    le document entier.
     """
     if size > _MAX_RESULT_WINDOW:
         raise ValueError(f"size must not exceed {_MAX_RESULT_WINDOW}")
@@ -61,6 +68,8 @@ async def paginate(
     search_kwargs: dict[str, Any] = {"index": index, "query": query, "sort": sort, "size": size}
     if search_after is not None:
         search_kwargs["search_after"] = search_after
+    if source is not None:
+        search_kwargs["source"] = source
 
     response = await client.search(**search_kwargs)
     hits = response["hits"]["hits"]
