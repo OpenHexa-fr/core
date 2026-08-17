@@ -7,6 +7,8 @@ from typing import Any
 
 from elasticsearch import AsyncElasticsearch
 
+from openhexa_core.pagination import encode_cursor
+
 _DEFAULT_PAGE_SIZE = 200
 _MAX_RESULT_WINDOW = 1000
 
@@ -74,11 +76,17 @@ async def paginate(
     response = await client.search(**search_kwargs)
     hits = response["hits"]["hits"]
     next_search_after = hits[-1]["sort"] if hits else None
+    total = response["hits"]["total"]
 
     return {
         "hits": hits,
-        "total": response["hits"]["total"]["value"],
+        "total": total["value"],
+        # "eq" = compte exact, "gte" = plafonné (10 000 par défaut côté
+        # Elasticsearch). Sans cette information, un total de 10 000 se lit à
+        # tort comme un décompte exact.
+        "total_relation": total.get("relation", "eq"),
         "next_search_after": next_search_after,
+        "next_cursor": encode_cursor(next_search_after) if next_search_after else None,
     }
 
 
