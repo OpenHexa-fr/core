@@ -45,6 +45,26 @@ async def test_paginate_returns_next_search_after() -> None:
     assert page["next_search_after"] == ["2024-01-01", "1"]
 
 
+async def test_paginate_omits_source_by_default() -> None:
+    client = AsyncMock()
+    client.search.return_value = {"hits": {"hits": [], "total": {"value": 0}}}
+
+    await paginate(client, "openhexa-dvf", {}, sort=[{"date": "asc"}])
+
+    assert "source" not in client.search.call_args.kwargs
+
+
+async def test_paginate_forwards_source_filtering() -> None:
+    client = AsyncMock()
+    client.search.return_value = {"hits": {"hits": [], "total": {"value": 0}}}
+
+    await paginate(
+        client, "openhexa-dvf", {}, sort=[{"date": "asc"}], source=["id_mutation", "location"]
+    )
+
+    assert client.search.call_args.kwargs["source"] == ["id_mutation", "location"]
+
+
 async def test_count_returns_document_count() -> None:
     client = AsyncMock()
     client.count.return_value = {"count": 42}
