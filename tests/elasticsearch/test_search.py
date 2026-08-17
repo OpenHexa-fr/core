@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from openhexa_core.elasticsearch.search import build_filters, count, paginate, search_after_all
+from openhexa_core.pagination import decode_cursor
 
 
 def test_build_filters_ignores_none() -> None:
@@ -43,6 +44,30 @@ async def test_paginate_returns_next_search_after() -> None:
 
     assert page["total"] == 1
     assert page["next_search_after"] == ["2024-01-01", "1"]
+
+
+async def test_paginate_exposes_a_cursor_and_the_total_relation() -> None:
+    client = AsyncMock()
+    client.search.return_value = {
+        "hits": {
+            "hits": [{"_id": "1", "sort": [1704067200000, 12]}],
+            "total": {"value": 10000, "relation": "gte"},
+        }
+    }
+
+    page = await paginate(client, "openhexa-dvf", {}, sort=[{"date": "asc"}])
+
+    assert page["total_relation"] == "gte"
+    assert decode_cursor(page["next_cursor"]) == [1704067200000, 12]
+
+
+async def test_paginate_has_no_cursor_on_an_empty_page() -> None:
+    client = AsyncMock()
+    client.search.return_value = {"hits": {"hits": [], "total": {"value": 0, "relation": "eq"}}}
+
+    page = await paginate(client, "openhexa-dvf", {}, sort=[{"date": "asc"}])
+
+    assert page["next_cursor"] is None
 
 
 async def test_paginate_omits_source_by_default() -> None:
