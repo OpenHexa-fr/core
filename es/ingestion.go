@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,7 +176,7 @@ func BulkIndex(
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	return success, failed, errors.Join(addErr, closeErr, firstErr)
+	return success, failed, joinDistinct(addErr, closeErr, firstErr)
 }
 
 func toBulkItem(indexAlias string, doc Document) (esutil.BulkIndexerItem, error) {
@@ -194,4 +195,19 @@ func toBulkItem(indexAlias string, doc Document) (esutil.BulkIndexerItem, error)
 	return esutil.BulkIndexerItem{
 		Action: "index", Index: indexAlias, DocumentID: id, Body: bytes.NewReader(payload),
 	}, nil
+}
+
+// joinDistinct réunit les erreurs non nulles en écartant les doublons : une
+// annulation de contexte remonte sinon trois fois, par trois chemins.
+func joinDistinct(errs ...error) error {
+	var distinct []error
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if !slices.ContainsFunc(distinct, func(seen error) bool { return seen == err || seen.Error() == err.Error() }) {
+			distinct = append(distinct, err)
+		}
+	}
+	return errors.Join(distinct...)
 }

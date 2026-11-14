@@ -1,7 +1,9 @@
 package es
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -142,5 +144,22 @@ func TestBulkIndexReportsTransportFailure(t *testing.T) {
 
 	if err == nil || success != 0 || failed != 1 {
 		t.Errorf("success=%d failed=%d err=%v", success, failed, err)
+	}
+}
+
+func TestBulkIndexReportsACancelledContextOnce(t *testing.T) {
+	client, _ := estest.New(t, func(w http.ResponseWriter, r *http.Request) {
+		estest.JSON(w, 200, map[string]any{"errors": false, "items": []any{}})
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, _, err := BulkIndex(ctx, client, "idx", slices.Values([]Document{{"_id": "a"}}))
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("erreur %v, attendu context.Canceled", err)
+	}
+	if strings.Count(err.Error(), "context canceled") != 1 {
+		t.Errorf("l'erreur ne doit pas être dupliquée : %q", err)
 	}
 }
