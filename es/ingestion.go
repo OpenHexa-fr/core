@@ -128,8 +128,9 @@ func pyFloat(f float64) string {
 //
 // L'écriture se fait toujours via l'alias, jamais directement sur un index
 // nommé. Chaque document doit porter une clé `_id` de type string (voir
-// MakeDocumentID). Les documents sont consommés au fil de l'eau : une source
-// volumineuse n'a pas besoin d'être chargée en mémoire.
+// MakeDocumentID). Un document dont l'`_id` existe déjà est remplacé. Les
+// documents sont consommés au fil de l'eau : une source volumineuse n'a pas
+// besoin d'être chargée en mémoire.
 //
 // Retourne le nombre de succès et d'échecs unitaires. Une erreur n'est retournée
 // que pour un problème qui empêche l'écriture elle-même (document sans `_id`,
@@ -137,9 +138,42 @@ func pyFloat(f float64) string {
 func BulkIndex(
 	ctx context.Context, client *elasticsearch.Client, indexAlias string, docs iter.Seq[Document],
 ) (success, failed int, err error) {
+	result, err := bulk(ctx, client, indexAlias, "index", docs)
+	if result.failed > 0 {
+		slog.Warn("elasticsearch_bulk_index_errors", "index_alias", indexAlias, "errors", result.failed)
+	}
+	return result.success, result.failed, err
+}
+
+// BulkCreate ajoute `docs` à `target` (data stream ou alias) sans jamais
+// écraser un document existant : action `create`, seule acceptée par un data
+// stream.
+//
+// Un document dont l'`_id` existe déjà dans l'index d'écriture est compté
+// dans `duplicates` et non comme un échec : renvoyer deux fois le même
+// document est sans effet. Dans un data stream, cette garantie ne vaut que pour
+// l'index d'écriture courant ; voir ExistingIDs pour filtrer en amont.
+func BulkCreate(
+	ctx context.Context, client *elasticsearch.Client, target string, docs iter.Seq[Document],
+) (created, duplicates, failed int, err error) {
+	result, err := bulk(ctx, client, target, "create", docs)
+	if result.failed > 0 {
+		slog.Warn("elasticsearch_bulk_create_errors", "target", target, "errors", result.failed)
+	}
+	return result.success, result.conflicts, result.failed, err
+}
+
+type bulkResult struct {
+	success, conflicts, failed int
+}
+
+func bulk(
+	ctx context.Context, client *elasticsearch.Client, target, action string, docs iter.Seq[Document],
+) (bulkResult, error) {
 	var (
 		mu       sync.Mutex
 		firstErr error
+		result   bulkResult
 	)
 	indexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
 		Client: client,
@@ -152,13 +186,25 @@ func BulkIndex(
 		},
 	})
 	if err != nil {
-		return 0, 0, err
+		return result, err
+	}
+
+	// Les échecs d'un flush entier (transport) ne passent pas par OnFailure :
+	// les totaux viennent des statistiques de l'indexer, OnFailure ne sert
+	// qu'à isoler les conflits (409) d'un `create`.
+	onFailure := func(_ context.Context, _ esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem, _ error) {
+		if action == "create" && res.Status == 409 {
+			mu.Lock()
+			defer mu.Unlock()
+			result.conflicts++
+		}
 	}
 
 	var addErr error
 	for doc := range docs {
-		item, e := toBulkItem(indexAlias, doc)
+		item, e := toBulkItem(target, action, doc)
 		if e == nil {
+			item.OnFailure = onFailure
 			e = indexer.Add(ctx, item)
 		}
 		if e != nil {
@@ -169,17 +215,14 @@ func BulkIndex(
 
 	closeErr := indexer.Close(ctx)
 	stats := indexer.Stats()
-	success, failed = int(stats.NumIndexed), int(stats.NumFailed)
-
-	if failed > 0 {
-		slog.Warn("elasticsearch_bulk_index_errors", "index_alias", indexAlias, "errors", failed)
-	}
 	mu.Lock()
 	defer mu.Unlock()
-	return success, failed, joinDistinct(addErr, closeErr, firstErr)
+	result.success = int(stats.NumIndexed + stats.NumCreated)
+	result.failed = int(stats.NumFailed) - result.conflicts
+	return result, joinDistinct(addErr, closeErr, firstErr)
 }
 
-func toBulkItem(indexAlias string, doc Document) (esutil.BulkIndexerItem, error) {
+func toBulkItem(target, action string, doc Document) (esutil.BulkIndexerItem, error) {
 	id, ok := doc["_id"].(string)
 	if !ok || id == "" {
 		return esutil.BulkIndexerItem{}, errors.New("es: document sans clé `_id` de type string")
@@ -190,10 +233,10 @@ func toBulkItem(indexAlias string, doc Document) (esutil.BulkIndexerItem, error)
 	if err != nil {
 		return esutil.BulkIndexerItem{}, fmt.Errorf("es: document %s non sérialisable : %w", id, err)
 	}
-	// L'alias figure dans chaque action (et non dans l'URL) : une écriture ne
-	// peut ainsi jamais viser autre chose que l'alias demandé.
+	// La cible figure dans chaque action (et non dans l'URL) : une écriture ne
+	// peut ainsi jamais viser autre chose que la cible demandée.
 	return esutil.BulkIndexerItem{
-		Action: "index", Index: indexAlias, DocumentID: id, Body: bytes.NewReader(payload),
+		Action: action, Index: target, DocumentID: id, Body: bytes.NewReader(payload),
 	}, nil
 }
 

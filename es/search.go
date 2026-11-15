@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"slices"
 
 	"github.com/elastic/go-elasticsearch/v8"
 
@@ -65,6 +66,58 @@ func Count(ctx context.Context, client *elasticsearch.Client, index string) (int
 		return 0, err
 	}
 	return body.Count, nil
+}
+
+// existingIDsChunk est le nombre d'`_id` recherchés par requête : il ne doit
+// pas dépasser `index.max_result_window` (10 000 par défaut).
+const existingIDsChunk = 10_000
+
+// ExistingIDs retourne, parmi `ids`, ceux déjà présents dans `index` (alias,
+// data stream ou nom d'index), tous index sous-jacents confondus.
+//
+// Sert à dédoublonner avant un BulkCreate dans un data stream, où l'unicité de
+// l'`_id` n'est garantie qu'au sein de l'index d'écriture courant. Un `index`
+// absent n'est pas une erreur : aucun `_id` n'y existe encore.
+func ExistingIDs(
+	ctx context.Context, client *elasticsearch.Client, index string, ids []string,
+) (map[string]bool, error) {
+	existing := map[string]bool{}
+	for chunk := range slices.Chunk(ids, existingIDsChunk) {
+		body, err := jsonBody(map[string]any{
+			"query":   map[string]any{"ids": map[string]any{"values": chunk}},
+			"size":    len(chunk),
+			"_source": false,
+		})
+		if err != nil {
+			return nil, err
+		}
+		res, err := client.Search(
+			client.Search.WithContext(ctx), client.Search.WithIndex(index), client.Search.WithBody(body),
+			client.Search.WithIgnoreUnavailable(true), client.Search.WithAllowNoIndices(true),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkResponse(res); err != nil {
+			return nil, err
+		}
+		var parsed struct {
+			Hits struct {
+				Hits []struct {
+					ID string `json:"_id"`
+				} `json:"hits"`
+			} `json:"hits"`
+		}
+		err = json.NewDecoder(res.Body).Decode(&parsed)
+		res.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		for _, hit := range parsed.Hits.Hits {
+			existing[hit.ID] = true
+		}
+	}
+	return existing, nil
 }
 
 // Filter est un critère pour BuildFilters.
